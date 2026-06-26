@@ -31,12 +31,12 @@ console.log(`✅ ${availableKeys.length} API key(s) loaded.`);
 //      Quality score ke hisaab se order kiya hai (best pehle)
 // ══════════════════════════════════════════════════════════════════
 const MODELS = [
-  "google/gemma-4-31b-it:free",               // ✅ Quality:65 | Best general model
-  "nvidia/nemotron-3-super-120b-a12b:free",    // ✅ Quality:60 | 1M context, powerful
-  "openai/gpt-oss-120b:free",                  // ✅ Quality:55 | OpenAI ka free model
-  "meta-llama/llama-3.3-70b-instruct:free",    // ✅ Quality:24 | Meta, very reliable
-  "nousresearch/hermes-3-llama-3.1-405b:free", // ✅ Large model, good fallback
-  "openrouter/free",                            // ✅ Auto-router: OpenRouter khud best free model choose karta hai
+  "google/gemma-4-31b-it:free",            // #1
+  "meta-llama/llama-3.3-70b-instruct:free",// #2
+  "nvidia/nemotron-3-super-120b-a12b:free",// #3
+  "openai/gpt-oss-120b:free",              // #4
+  "nousresearch/hermes-3-llama-3.1-405b:free", // #5
+  "openrouter/free"                        // Fallback
 ];
 
 // ══════════════════════════════════════════════════════════════════
