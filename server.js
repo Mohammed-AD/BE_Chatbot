@@ -1,60 +1,156 @@
 require("dotenv").config();
 
 const express = require("express");
-const cors = require("cors"); 
-const fetch = require("node-fetch");
+const cors    = require("cors");
+const fetch   = require("node-fetch");
 
 const app = express();
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: "20kb" }));
+app.use(express.static("public"));
 
-const API_KEY = process.env.API_KEY;
+// ══════════════════════════════════════════════════════════════════
+//  🔑  API KEYS — .env file mein likho:
+//      API_KEY_1=sk-or-v1-xxxxx
+//      API_KEY_2=sk-or-v1-yyyyy
+// ══════════════════════════════════════════════════════════════════
+const KEY_1 = process.env.API_KEY_1;
+const KEY_2 = process.env.API_KEY_2;
 
-app.post("/chat", async (req, res) => {
-  try {
-    const userMessage = req.body.message;
-
-    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${API_KEY}`,
-        "Content-Type": "application/json",
-        "HTTP-Referer": "http://localhost:3000",
-        "X-Title": "chatbot-app"
-      },
-      body: JSON.stringify({
-        model: "qwen/qwen3.6-plus:free",
-        messages: [
-          { role: "user", content: userMessage }
-        ]
-      })
-    });
-
-    const data = await response.json();
-
-    console.log("API RESPONSE:", data); // 🔥 ADD THIS
-
-    if (!data.choices) {
-      console.log("FULL ERROR:", data);
-      return res.json({ error: data }); // 🔥 show real error
-    }
-
-    if (data.choices && data.choices.length > 0) {
-  res.json({
-    reply: data.choices[0].message.content
-  });
-} else {
-  console.log("API ERROR:", data);
-  res.json({
-    reply: "Error from AI"
-  });
+if (!KEY_1 && !KEY_2) {
+  console.error("❌ Koi API key nahi mili! .env file check karo.");
+  process.exit(1);
 }
 
-  } catch (error) {
-    console.log("ERROR:", error); // 🔥 ADD THIS
-    res.status(500).json({ error: "Error occurred" });
+const availableKeys = [KEY_1, KEY_2].filter(Boolean);
+console.log(`✅ ${availableKeys.length} API key(s) loaded.`);
+
+// ══════════════════════════════════════════════════════════════════
+//  🤖  FREE MODELS — June 2026 verified list from openrouter.ai
+//      Sab 100% free hain, koi credit card nahi chahiye
+//      Quality score ke hisaab se order kiya hai (best pehle)
+// ══════════════════════════════════════════════════════════════════
+const MODELS = [
+  "google/gemma-4-31b-it:free",               // ✅ Quality:65 | Best general model
+  "nvidia/nemotron-3-super-120b-a12b:free",    // ✅ Quality:60 | 1M context, powerful
+  "openai/gpt-oss-120b:free",                  // ✅ Quality:55 | OpenAI ka free model
+  "meta-llama/llama-3.3-70b-instruct:free",    // ✅ Quality:24 | Meta, very reliable
+  "nousresearch/hermes-3-llama-3.1-405b:free", // ✅ Large model, good fallback
+  "openrouter/free",                            // ✅ Auto-router: OpenRouter khud best free model choose karta hai
+];
+
+// ══════════════════════════════════════════════════════════════════
+//  🧠  SYSTEM PROMPT
+// ══════════════════════════════════════════════════════════════════
+const SYSTEM_PROMPT = `You are a helpful, smart AI assistant.
+- Answer clearly and accurately
+- For complex questions, explain step by step
+- For translations, keep the original meaning exactly
+- Be concise unless a detailed answer is needed`;
+
+// ══════════════════════════════════════════════════════════════════
+//  🔄  SMART FALLBACK ENGINE
+// ══════════════════════════════════════════════════════════════════
+async function smartCall(messages) {
+  for (const key of availableKeys) {
+    for (const model of MODELS) {
+      try {
+        const shortKey = key.slice(-6);
+        const shortModel = model.split("/")[1] || model;
+        console.log(`🔄 Trying: ${shortModel} | Key: ...${shortKey}`);
+
+        const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${key}`,
+            "Content-Type":  "application/json",
+            "HTTP-Referer":  process.env.SITE_URL || "http://localhost:3000",
+            "X-Title":       "My Chatbot",
+          },
+          body: JSON.stringify({
+            model,
+            messages,
+            temperature: 0.7,
+            max_tokens:  1500,
+          }),
+        });
+
+        const data = await res.json();
+
+        if (data.error) {
+          console.warn(`  ⚠️  ${data.error.message || JSON.stringify(data.error)}`);
+          continue;
+        }
+
+        if (!data.choices || data.choices.length === 0) {
+          console.warn(`  ⚠️  No response received`);
+          continue;
+        }
+
+        console.log(`  ✅ Success → ${model}`);
+        return {
+          reply: data.choices[0].message.content,
+          //model: model,
+        };
+
+      } catch (err) {
+        console.warn(`  ❌ Network error: ${err.message}`);
+        continue;
+      }
+    }
+  }
+
+  return null;
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  📡  POST /chat
+// ══════════════════════════════════════════════════════════════════
+app.post("/chat", async (req, res) => {
+  try {
+    const { message, history = [] } = req.body;
+
+    if (!message || typeof message !== "string" || message.trim() === "") {
+      return res.status(400).json({ error: "Message required hai." });
+    }
+    if (message.length > 5000) {
+      return res.status(400).json({ error: "Message bahut lamba hai." });
+    }
+
+    const messages = [
+      { role: "system", content: SYSTEM_PROMPT },
+      ...history.slice(-10),
+      { role: "user",   content: message.trim() },
+    ];
+
+    const result = await smartCall(messages);
+
+    if (result) {
+      return res.json(result);
+    }
+
+    return res.status(503).json({
+      error: "Abhi sab models busy hain. 1-2 minute baad try karo.",
+    });
+
+  } catch (err) {
+    console.error("Server error:", err);
+    res.status(500).json({ error: "Internal server error." });
   }
 });
-app.listen(3000, () => {
-  console.log("Server running on http://localhost:3000");
+
+app.get("/health", (req, res) => {
+  res.json({
+    status:       "ok",
+    keys_loaded:  availableKeys.length,
+    models:       MODELS.length,
+    combinations: availableKeys.length * MODELS.length,
+  });
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`\n🚀 Server → http://localhost:${PORT}`);
+  console.log(`🔑 Keys: ${availableKeys.length} | 🤖 Models: ${MODELS.length}`);
+  console.log(`🔄 Total combinations: ${availableKeys.length * MODELS.length}\n`);
 });
